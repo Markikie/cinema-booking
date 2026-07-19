@@ -45,16 +45,14 @@ func (r *UserRepository) FindOrCreate(ctx context.Context, googleID, email, name
 	existing, err := r.FindByGoogleID(ctx, googleID)
 	if err == nil {
 		if existing.Role != desiredRole {
-			objID, convErr := primitive.ObjectIDFromHex(existing.ID)
-			if convErr == nil {
-				_, _ = r.collection.UpdateOne(ctx, bson.M{"_id": objID}, bson.M{"$set": bson.M{"role": desiredRole}})
-				existing.Role = desiredRole
-			}
+			_, _ = r.collection.UpdateOne(ctx, bson.M{"_id": existing.ID}, bson.M{"$set": bson.M{"role": desiredRole}})
+			existing.Role = desiredRole
 		}
 		return existing, nil
 	}
 
 	newUser := &models.User{
+		ID:        primitive.NewObjectID().Hex(),
 		GoogleID:  googleID,
 		Email:     email,
 		Name:      name,
@@ -62,11 +60,10 @@ func (r *UserRepository) FindOrCreate(ctx context.Context, googleID, email, name
 		CreatedAt: time.Now(),
 	}
 
-	res, err := r.collection.InsertOne(ctx, newUser)
+	_, err = r.collection.InsertOne(ctx, newUser)
 	if err != nil {
 		return nil, err
 	}
 
-	newUser.ID = res.InsertedID.(primitive.ObjectID).Hex()
 	return newUser, nil
 }

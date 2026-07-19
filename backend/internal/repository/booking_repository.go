@@ -21,29 +21,22 @@ func NewBookingRepository(db *mongo.Database) *BookingRepository {
 }
 
 func (r *BookingRepository) Create(ctx context.Context, booking *models.Booking) (string, error) {
-	res, err := r.collection.InsertOne(ctx, booking)
+	booking.ID = primitive.NewObjectID().Hex()
+	_, err := r.collection.InsertOne(ctx, booking)
 	if err != nil {
 		return "", err
 	}
-	return res.InsertedID.(primitive.ObjectID).Hex(), nil
+	return booking.ID, nil
 }
 
 func (r *BookingRepository) UpdateStatus(ctx context.Context, bookingID string, status models.BookingStatus) error {
-	objID, err := primitive.ObjectIDFromHex(bookingID)
-	if err != nil {
-		return err
-	}
-	_, err = r.collection.UpdateOne(ctx, bson.M{"_id": objID}, bson.M{"$set": bson.M{"status": status}})
+	_, err := r.collection.UpdateOne(ctx, bson.M{"_id": bookingID}, bson.M{"$set": bson.M{"status": status}})
 	return err
 }
 
 func (r *BookingRepository) FindByID(ctx context.Context, bookingID string) (*models.Booking, error) {
-	objID, err := primitive.ObjectIDFromHex(bookingID)
-	if err != nil {
-		return nil, err
-	}
 	var booking models.Booking
-	err = r.collection.FindOne(ctx, bson.M{"_id": objID}).Decode(&booking)
+	err := r.collection.FindOne(ctx, bson.M{"_id": bookingID}).Decode(&booking)
 	if err != nil {
 		return nil, err
 	}

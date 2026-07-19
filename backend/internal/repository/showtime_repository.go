@@ -20,20 +20,17 @@ func NewShowtimeRepository(db *mongo.Database) *ShowtimeRepository {
 }
 
 func (r *ShowtimeRepository) Create(ctx context.Context, showtime *models.Showtime) (string, error) {
-	res, err := r.collection.InsertOne(ctx, showtime)
+	showtime.ID = primitive.NewObjectID().Hex()
+	_, err := r.collection.InsertOne(ctx, showtime)
 	if err != nil {
 		return "", err
 	}
-	return res.InsertedID.(primitive.ObjectID).Hex(), nil
+	return showtime.ID, nil
 }
 
 func (r *ShowtimeRepository) FindByID(ctx context.Context, showtimeID string) (*models.Showtime, error) {
-	objID, err := primitive.ObjectIDFromHex(showtimeID)
-	if err != nil {
-		return nil, err
-	}
 	var showtime models.Showtime
-	err = r.collection.FindOne(ctx, bson.M{"_id": objID}).Decode(&showtime)
+	err := r.collection.FindOne(ctx, bson.M{"_id": showtimeID}).Decode(&showtime)
 	if err != nil {
 		return nil, err
 	}

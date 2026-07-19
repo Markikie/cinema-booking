@@ -70,6 +70,28 @@ func (h *AdminHandler) ListAuditLogs(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"logs": logs})
 }
 
+func (h *AdminHandler) ListShowtimes(c *gin.Context) {
+	showtimes, err := h.showtimeRepo.FindAll(c.Request.Context())
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to fetch showtimes"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"showtimes": showtimes})
+}
+
+func (h *AdminHandler) GetShowtime(c *gin.Context) {
+	showtimeID := c.Param("showtime_id")
+
+	showtime, err := h.showtimeRepo.FindByID(c.Request.Context(), showtimeID)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "showtime not found"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"showtime": showtime})
+}
+
 type createShowtimeRequest struct {
 	MovieName   string    `json:"movie_name" binding:"required"`
 	Hall        string    `json:"hall" binding:"required"`
@@ -116,7 +138,12 @@ func (h *AdminHandler) CreateShowtime(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusCreated, gin.H{"showtime_id": showtimeID, "seats_created": len(seats)})
+	showtime.ID = showtimeID
+	c.JSON(http.StatusCreated, gin.H{
+		"showtime_id":   showtimeID,
+		"showtime":      showtime,
+		"seats_created": len(seats),
+	})
 }
 
 func parseQueryInt(value string, defaultValue int) int {

@@ -84,6 +84,40 @@ func (s *BookingService) SelectSeat(ctx context.Context, userID, showtimeID, sea
 	return nil
 }
 
+func (s *BookingService) ReleaseSeat(ctx context.Context, userID, showtimeID, seatID string) error {
+	seat, err := s.seatRepo.FindByID(ctx, seatID)
+	if err != nil {
+		return ErrSeatNotFound
+	}
+
+	if seat.Status != models.SeatLocked || seat.LockedBy != userID {
+		return ErrSeatNotLockedByMe
+	}
+
+	if err := s.lockService.ReleaseLock(ctx, showtimeID, seatID, userID); err != nil {
+		if errors.Is(err, ErrLockNotOwned) {
+			return ErrSeatNotLockedByMe
+		}
+		return fmt.Errorf("failed to release lock: %w", err)
+	}
+
+	if err := s.seatRepo.UpdateStatus(ctx, seatID, models.SeatAvailable, ""); err != nil {
+		s.logEvent(ctx, "SYSTEM_ERROR", userID, "", fmt.Sprintf("failed to update seat status after release: %v", err))
+		return fmt.Errorf("failed to update seat status: %w", err)
+	}
+
+	s.logEvent(ctx, "SEAT_RELEASED", userID, "", fmt.Sprintf("seat %s released for showtime %s", seatID, showtimeID))
+
+	_ = s.pubsub.Publish(ctx, ws.SeatEvent{
+		Type:       "SEAT_RELEASED",
+		ShowtimeID: showtimeID,
+		SeatID:     seatID,
+		Status:     string(models.SeatAvailable),
+	})
+
+	return nil
+}
+
 // CreateBooking เดิมไม่เคยเช็คเลยว่าที่นั่งที่ขอจองถูกล็อกโดย user คนนี้จริงไหม
 // (client ข้ามขั้นตอน select-seat แล้วยิงมาตรงนี้พร้อม seat_id ใดก็ได้ก็ผ่าน) —
 // เพิ่มการเช็คว่าทุกที่นั่งต้องอยู่ในสถานะ LOCKED และ locked_by ต้องเป็น userID

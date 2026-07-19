@@ -84,8 +84,11 @@ func main() {
 	authorized := router.Group("/api")
 	authorized.Use(middleware.RequireAuth(cfg.JWTSecret))
 	{
+		authorized.GET("/showtimes", adminHandler.ListShowtimes)
+		authorized.GET("/showtimes/:showtime_id", adminHandler.GetShowtime)
 		authorized.GET("/showtimes/:showtime_id/seats", bookingHandler.GetSeatMap)
 		authorized.POST("/bookings/select-seat", bookingHandler.SelectSeat)
+		authorized.POST("/bookings/release-seat", bookingHandler.ReleaseSeat)
 		authorized.POST("/bookings", bookingHandler.CreateBooking)
 		authorized.POST("/bookings/confirm-payment", bookingHandler.ConfirmPayment)
 	}

@@ -37,13 +37,8 @@ func (r *SeatRepository) FindByShowtime(ctx context.Context, showtimeID string) 
 }
 
 func (r *SeatRepository) FindByID(ctx context.Context, seatID string) (*models.Seat, error) {
-	objID, err := primitive.ObjectIDFromHex(seatID)
-	if err != nil {
-		return nil, err
-	}
-
 	var seat models.Seat
-	err = r.collection.FindOne(ctx, bson.M{"_id": objID}).Decode(&seat)
+	err := r.collection.FindOne(ctx, bson.M{"_id": seatID}).Decode(&seat)
 	if err != nil {
 		return nil, err
 	}
@@ -51,11 +46,6 @@ func (r *SeatRepository) FindByID(ctx context.Context, seatID string) (*models.S
 }
 
 func (r *SeatRepository) UpdateStatus(ctx context.Context, seatID string, status models.SeatStatus, lockedBy string) error {
-	objID, err := primitive.ObjectIDFromHex(seatID)
-	if err != nil {
-		return err
-	}
-
 	update := bson.M{
 		"status": status,
 	}
@@ -69,18 +59,13 @@ func (r *SeatRepository) UpdateStatus(ctx context.Context, seatID string, status
 		update["locked_at"] = nil
 	}
 
-	_, err = r.collection.UpdateOne(ctx, bson.M{"_id": objID}, bson.M{"$set": update})
+	_, err := r.collection.UpdateOne(ctx, bson.M{"_id": seatID}, bson.M{"$set": update})
 	return err
 }
 
 func (r *SeatRepository) MarkBookedIfLockedBy(ctx context.Context, seatID, lockedBy string) (bool, error) {
-	objID, err := primitive.ObjectIDFromHex(seatID)
-	if err != nil {
-		return false, err
-	}
-
 	filter := bson.M{
-		"_id":       objID,
+		"_id":       seatID,
 		"status":    models.SeatLocked,
 		"locked_by": lockedBy,
 	}
@@ -100,6 +85,12 @@ func (r *SeatRepository) MarkBookedIfLockedBy(ctx context.Context, seatID, locke
 }
 
 func (r *SeatRepository) InsertMany(ctx context.Context, seats []interface{}) error {
+	for i, seat := range seats {
+		if modelSeat, ok := seat.(models.Seat); ok && modelSeat.ID == "" {
+			modelSeat.ID = primitive.NewObjectID().Hex()
+			seats[i] = modelSeat
+		}
+	}
 	_, err := r.collection.InsertMany(ctx, seats)
 	return err
 }

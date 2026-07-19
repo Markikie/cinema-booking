@@ -65,6 +65,36 @@ func (h *BookingHandler) SelectSeat(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"message": "seat locked successfully", "lock_duration_seconds": 300})
 }
 
+type releaseSeatRequest struct {
+	ShowtimeID string `json:"showtime_id" binding:"required"`
+	SeatID     string `json:"seat_id" binding:"required"`
+}
+
+func (h *BookingHandler) ReleaseSeat(c *gin.Context) {
+	userID := c.GetString(middleware.ContextKeyUserID)
+
+	var req releaseSeatRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "showtime_id and seat_id are required"})
+		return
+	}
+
+	err := h.bookingService.ReleaseSeat(c.Request.Context(), userID, req.ShowtimeID, req.SeatID)
+	if err != nil {
+		switch {
+		case errors.Is(err, service.ErrSeatNotLockedByMe):
+			c.JSON(http.StatusConflict, gin.H{"error": "seat is not locked by you"})
+		case errors.Is(err, service.ErrSeatNotFound):
+			c.JSON(http.StatusNotFound, gin.H{"error": "seat not found"})
+		default:
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to release seat"})
+		}
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"message": "seat released successfully"})
+}
+
 type createBookingRequest struct {
 	ShowtimeID string   `json:"showtime_id" binding:"required"`
 	SeatIDs    []string `json:"seat_ids" binding:"required,min=1"`
