@@ -81,7 +81,15 @@ func (h *BookingHandler) CreateBooking(c *gin.Context) {
 
 	bookingID, err := h.bookingService.CreateBooking(c.Request.Context(), userID, req.ShowtimeID, req.SeatIDs)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to create booking"})
+		switch {
+		case errors.Is(err, service.ErrSeatNotLockedByMe):
+
+			c.JSON(http.StatusConflict, gin.H{"error": "one or more seats are not locked by you — select them again"})
+		case errors.Is(err, service.ErrSeatNotFound):
+			c.JSON(http.StatusNotFound, gin.H{"error": "seat not found"})
+		default:
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to create booking"})
+		}
 		return
 	}
 
@@ -106,8 +114,13 @@ func (h *BookingHandler) ConfirmPayment(c *gin.Context) {
 		switch {
 		case errors.Is(err, service.ErrBookingNotFound):
 			c.JSON(http.StatusNotFound, gin.H{"error": "booking not found"})
+		case errors.Is(err, service.ErrBookingNotOwned):
+
+			c.JSON(http.StatusForbidden, gin.H{"error": "this booking does not belong to you"})
 		case errors.Is(err, service.ErrBookingExpired):
 			c.JSON(http.StatusGone, gin.H{"error": "booking has expired, please select seats again"})
+		case errors.Is(err, service.ErrSeatConflict):
+			c.JSON(http.StatusConflict, gin.H{"error": "one or more seats could not be confirmed, please select seats again"})
 		default:
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to confirm payment"})
 		}

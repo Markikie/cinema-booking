@@ -5,15 +5,11 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/Markikie/cinema-booking/internal/middleware"
+
 	"github.com/gin-gonic/gin"
 	"github.com/gorilla/websocket"
 )
-
-var upgrader = websocket.Upgrader{
-	CheckOrigin: func(r *http.Request) bool {
-		return true
-	},
-}
 
 const (
 	writeWait  = 10 * time.Second
@@ -21,11 +17,31 @@ const (
 	pingPeriod = (pongWait * 9) / 10
 )
 
-func ServeWS(hub *Hub) gin.HandlerFunc {
+func ServeWS(hub *Hub, jwtSecret string, allowedOrigin string) gin.HandlerFunc {
+	upgrader := websocket.Upgrader{
+		CheckOrigin: func(r *http.Request) bool {
+			origin := r.Header.Get("Origin")
+			if origin == "" {
+				return true
+			}
+			return origin == allowedOrigin
+		},
+	}
+
 	return func(c *gin.Context) {
 		showtimeID := c.Query("showtime_id")
 		if showtimeID == "" {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "showtime_id is required"})
+			return
+		}
+
+		token := c.Query("token")
+		if token == "" {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "token is required"})
+			return
+		}
+		if _, err := middleware.ParseAppToken(jwtSecret, token); err != nil {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid or expired token"})
 			return
 		}
 

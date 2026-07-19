@@ -50,10 +50,25 @@ func (r *BookingRepository) FindByID(ctx context.Context, bookingID string) (*mo
 	return &booking, nil
 }
 
-// FindAll คือ query สำหรับ Admin Dashboard พร้อม filter
-// รับ filter เป็น bson.M ตรงๆ จาก handler ชั้นบน เพื่อให้ยืดหยุ่นต่อ requirement
-// ข้อ 2.2 ("Filter อย่างน้อย 1 อย่าง เช่น by movie / date / user") โดยไม่ต้องแก้
-// signature ของ function นี้ทุกครั้งที่อยากเพิ่ม filter ใหม่
+func (r *BookingRepository) FindPendingBySeat(ctx context.Context, showtimeID, seatID string) ([]models.Booking, error) {
+	filter := bson.M{
+		"showtime_id": showtimeID,
+		"seat_ids":    seatID,
+		"status":      models.BookingPending,
+	}
+	cursor, err := r.collection.Find(ctx, filter)
+	if err != nil {
+		return nil, err
+	}
+	defer cursor.Close(ctx)
+
+	var bookings []models.Booking
+	if err := cursor.All(ctx, &bookings); err != nil {
+		return nil, err
+	}
+	return bookings, nil
+}
+
 func (r *BookingRepository) FindAll(ctx context.Context, filter bson.M, limit, skip int64) ([]models.Booking, error) {
 	opts := options.Find().
 		SetSort(bson.D{{Key: "created_at", Value: -1}}).

@@ -73,6 +73,32 @@ func (r *SeatRepository) UpdateStatus(ctx context.Context, seatID string, status
 	return err
 }
 
+func (r *SeatRepository) MarkBookedIfLockedBy(ctx context.Context, seatID, lockedBy string) (bool, error) {
+	objID, err := primitive.ObjectIDFromHex(seatID)
+	if err != nil {
+		return false, err
+	}
+
+	filter := bson.M{
+		"_id":       objID,
+		"status":    models.SeatLocked,
+		"locked_by": lockedBy,
+	}
+	update := bson.M{
+		"$set": bson.M{
+			"status":    models.SeatBooked,
+			"locked_by": "",
+			"locked_at": nil,
+		},
+	}
+
+	res, err := r.collection.UpdateOne(ctx, filter, update)
+	if err != nil {
+		return false, err
+	}
+	return res.MatchedCount == 1, nil
+}
+
 func (r *SeatRepository) InsertMany(ctx context.Context, seats []interface{}) error {
 	_, err := r.collection.InsertMany(ctx, seats)
 	return err

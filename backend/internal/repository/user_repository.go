@@ -2,6 +2,7 @@ package repository
 
 import (
 	"context"
+	"strings"
 	"time"
 
 	"github.com/Markikie/cinema-booking/internal/models"
@@ -11,12 +12,18 @@ import (
 )
 
 type UserRepository struct {
-	collection *mongo.Collection
+	collection  *mongo.Collection
+	adminEmails map[string]bool
 }
 
-func NewUserRepository(db *mongo.Database) *UserRepository {
+func NewUserRepository(db *mongo.Database, adminEmails []string) *UserRepository {
+	lookup := make(map[string]bool, len(adminEmails))
+	for _, e := range adminEmails {
+		lookup[strings.ToLower(e)] = true
+	}
 	return &UserRepository{
-		collection: db.Collection("users"),
+		collection:  db.Collection("users"),
+		adminEmails: lookup,
 	}
 }
 
@@ -30,8 +37,20 @@ func (r *UserRepository) FindByGoogleID(ctx context.Context, googleID string) (*
 }
 
 func (r *UserRepository) FindOrCreate(ctx context.Context, googleID, email, name string) (*models.User, error) {
+	desiredRole := models.RoleUser
+	if r.adminEmails[strings.ToLower(email)] {
+		desiredRole = models.RoleAdmin
+	}
+
 	existing, err := r.FindByGoogleID(ctx, googleID)
 	if err == nil {
+		if existing.Role != desiredRole {
+			objID, convErr := primitive.ObjectIDFromHex(existing.ID)
+			if convErr == nil {
+				_, _ = r.collection.UpdateOne(ctx, bson.M{"_id": objID}, bson.M{"$set": bson.M{"role": desiredRole}})
+				existing.Role = desiredRole
+			}
+		}
 		return existing, nil
 	}
 
@@ -39,7 +58,7 @@ func (r *UserRepository) FindOrCreate(ctx context.Context, googleID, email, name
 		GoogleID:  googleID,
 		Email:     email,
 		Name:      name,
-		Role:      models.RoleUser,
+		Role:      desiredRole,
 		CreatedAt: time.Now(),
 	}
 

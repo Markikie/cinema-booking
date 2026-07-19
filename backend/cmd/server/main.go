@@ -37,7 +37,8 @@ func main() {
 	seatRepo := repository.NewSeatRepository(mongoDB)
 	bookingRepo := repository.NewBookingRepository(mongoDB)
 	auditRepo := repository.NewAuditLogRepository(mongoDB)
-	userRepo := repository.NewUserRepository(mongoDB)
+	userRepo := repository.NewUserRepository(mongoDB, cfg.AdminEmails)
+	showtimeRepo := repository.NewShowtimeRepository(mongoDB)
 
 	// ===== WebSocket hub + pub/sub =====
 	hub := ws.NewHub()
@@ -55,7 +56,7 @@ func main() {
 	// ===== handler layer (HTTP endpoints) =====
 	authHandler := handlers.NewAuthHandler(userRepo, cfg.GoogleClientID, cfg.JWTSecret)
 	bookingHandler := handlers.NewBookingHandler(bookingService, seatRepo)
-	adminHandler := handlers.NewAdminHandler(bookingRepo, auditRepo)
+	adminHandler := handlers.NewAdminHandler(bookingRepo, auditRepo, showtimeRepo, seatRepo)
 
 	// ===== Gin router =====
 	router := gin.Default()
@@ -74,7 +75,10 @@ func main() {
 
 	// ----- public routes -----
 	router.POST("/api/auth/login", authHandler.Login)
-	router.GET("/ws", ws.ServeWS(hub))
+	// /ws เดิมอยู่นอก authorized group เลยไม่ต้อง login ก็ต่อได้ ตอนนี้ต้องแนบ
+	// ?token=<jwt> เอง (ดู internal/ws/handler.go) เพราะ WS upgrade request
+	// จาก browser แนบ Authorization header ไม่ได้
+	router.GET("/ws", ws.ServeWS(hub, cfg.JWTSecret, cfg.AllowedOrigins))
 
 	// ----- authenticated routes -----
 	authorized := router.Group("/api")
@@ -92,6 +96,7 @@ func main() {
 	{
 		admin.GET("/bookings", adminHandler.ListBookings)
 		admin.GET("/audit-logs", adminHandler.ListAuditLogs)
+		admin.POST("/showtimes", adminHandler.CreateShowtime)
 	}
 
 	// ===== HTTP server =====

@@ -13,10 +13,13 @@ import (
 )
 
 var (
-	ErrSeatNotFound    = errors.New("seat not found")
-	ErrSeatNotBookable = errors.New("seat is not available for booking")
-	ErrBookingNotFound = errors.New("booking not found")
-	ErrBookingExpired  = errors.New("booking has expired")
+	ErrSeatNotFound      = errors.New("seat not found")
+	ErrSeatNotBookable   = errors.New("seat is not available for booking")
+	ErrBookingNotFound   = errors.New("booking not found")
+	ErrBookingExpired    = errors.New("booking has expired")
+	ErrSeatNotLockedByMe = errors.New("seat is not locked by this user")
+	ErrBookingNotOwned   = errors.New("booking does not belong to this user")
+	ErrSeatConflict      = errors.New("seat could not be confirmed, it may already be booked or its lock expired")
 )
 
 type BookingService struct {
@@ -69,6 +72,8 @@ func (s *BookingService) SelectSeat(ctx context.Context, userID, showtimeID, sea
 		return fmt.Errorf("failed to update seat status: %w", err)
 	}
 
+	s.logEvent(ctx, "SEAT_LOCKED", userID, "", fmt.Sprintf("seat %s locked for showtime %s", seatID, showtimeID))
+
 	_ = s.pubsub.Publish(ctx, ws.SeatEvent{
 		Type:       "SEAT_LOCKED",
 		ShowtimeID: showtimeID,
@@ -79,7 +84,22 @@ func (s *BookingService) SelectSeat(ctx context.Context, userID, showtimeID, sea
 	return nil
 }
 
+// CreateBooking เดิมไม่เคยเช็คเลยว่าที่นั่งที่ขอจองถูกล็อกโดย user คนนี้จริงไหม
+// (client ข้ามขั้นตอน select-seat แล้วยิงมาตรงนี้พร้อม seat_id ใดก็ได้ก็ผ่าน) —
+// เพิ่มการเช็คว่าทุกที่นั่งต้องอยู่ในสถานะ LOCKED และ locked_by ต้องเป็น userID
+// นี้เท่านั้น ก่อนจะสร้าง booking record เพื่อให้ "การล็อก" มีความหมายจริง
+// ไม่ใช่แค่ UI hint
 func (s *BookingService) CreateBooking(ctx context.Context, userID, showtimeID string, seatIDs []string) (string, error) {
+	for _, seatID := range seatIDs {
+		seat, err := s.seatRepo.FindByID(ctx, seatID)
+		if err != nil {
+			return "", ErrSeatNotFound
+		}
+		if seat.Status != models.SeatLocked || seat.LockedBy != userID {
+			return "", ErrSeatNotLockedByMe
+		}
+	}
+
 	now := time.Now()
 	booking := &models.Booking{
 		UserID:     userID,
@@ -104,14 +124,23 @@ func (s *BookingService) ConfirmPayment(ctx context.Context, bookingID, userID s
 		return ErrBookingNotFound
 	}
 
+	if booking.UserID != userID {
+		return ErrBookingNotOwned
+	}
+
 	if time.Now().After(booking.ExpiresAt) {
 		return ErrBookingExpired
 	}
 
 	for _, seatID := range booking.SeatIDs {
-		if err := s.seatRepo.UpdateStatus(ctx, seatID, models.SeatBooked, ""); err != nil {
+		ok, err := s.seatRepo.MarkBookedIfLockedBy(ctx, seatID, userID)
+		if err != nil {
 			s.logEvent(ctx, "SYSTEM_ERROR", userID, bookingID, fmt.Sprintf("failed to mark seat booked: %v", err))
 			return fmt.Errorf("failed to update seat status: %w", err)
+		}
+		if !ok {
+			s.logEvent(ctx, "SYSTEM_ERROR", userID, bookingID, fmt.Sprintf("seat %s conflict during confirm-payment", seatID))
+			return ErrSeatConflict
 		}
 
 		_ = s.lockService.ReleaseLock(ctx, booking.ShowtimeID, seatID, userID)
@@ -157,6 +186,17 @@ func (s *BookingService) ReleaseExpiredSeat(ctx context.Context, showtimeID, sea
 
 	s.logEvent(ctx, "BOOKING_TIMEOUT", seat.LockedBy, "", fmt.Sprintf("seat %s released after lock expired", seatID))
 	s.logEvent(ctx, "SEAT_RELEASED", seat.LockedBy, "", fmt.Sprintf("seat %s is now available", seatID))
+
+	pendingBookings, err := s.bookingRepo.FindPendingBySeat(ctx, showtimeID, seatID)
+	if err != nil {
+		log.Println("failed to find pending bookings during expiry release:", err)
+		return
+	}
+	for _, b := range pendingBookings {
+		if err := s.bookingRepo.UpdateStatus(ctx, b.ID, models.BookingTimeout); err != nil {
+			log.Println("failed to mark booking as timeout:", err)
+		}
+	}
 }
 
 func (s *BookingService) logEvent(ctx context.Context, eventType, userID, bookingID, detail string) {

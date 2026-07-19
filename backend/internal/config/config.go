@@ -3,6 +3,8 @@ package config
 import (
 	"log"
 	"os"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/joho/godotenv"
@@ -18,6 +20,7 @@ type Config struct {
 	JWTSecret      string
 	SeatLockTTL    time.Duration
 	AllowedOrigins string
+	AdminEmails    []string
 }
 
 func Load() *Config {
@@ -34,13 +37,31 @@ func Load() *Config {
 		JWTSecret:      getEnv("JWT_SECRET", ""),
 		AllowedOrigins: getEnv("ALLOWED_ORIGINS", "http://localhost:5173"),
 	}
-	cfg.SeatLockTTL = 5 * time.Minute
-	if cfg.JWTSecret == "" {
-		log.Println("WARNING: JWT_SECRET is not set, using insecure default for local dev only")
-		cfg.JWTSecret = "dev-only-insecure-secret-change-me"
+
+	seatLockSeconds, err := strconv.Atoi(getEnv("SEAT_LOCK_TTL_SECONDS", "300"))
+	if err != nil || seatLockSeconds <= 0 {
+		log.Println("WARNING: invalid SEAT_LOCK_TTL_SECONDS, falling back to 300")
+		seatLockSeconds = 300
 	}
+	cfg.SeatLockTTL = time.Duration(seatLockSeconds) * time.Second
+
+	if cfg.JWTSecret == "" {
+		log.Fatal("JWT_SECRET is required and must not be empty — refusing to start with an insecure default")
+	}
+
+	adminEmailsRaw := getEnv("ADMIN_EMAILS", "")
+	if adminEmailsRaw != "" {
+		for _, e := range strings.Split(adminEmailsRaw, ",") {
+			e = strings.TrimSpace(strings.ToLower(e))
+			if e != "" {
+				cfg.AdminEmails = append(cfg.AdminEmails, e)
+			}
+		}
+	}
+
 	return cfg
 }
+
 func getEnv(key, defaultValue string) string {
 	if value, exists := os.LookupEnv(key); exists {
 		return value
