@@ -62,11 +62,21 @@ VITE_GOOGLE_CLIENT_ID=your-google-oauth-client-id.apps.googleusercontent.com
 
 ## Run With Docker
 
+For Docker Compose, create a root `.env` file from `.env.example`:
+
+```powershell
+copy .env.example .env
+```
+
+Then set at least `JWT_SECRET`. Set `GOOGLE_CLIENT_ID` too if you want Google login to work from the Docker frontend.
+
 From the repository root:
 
 ```powershell
 docker-compose up --build
 ```
+
+If no root `.env` exists, Docker Compose uses a development-only JWT secret so the backend can start. Do not use that default in production.
 
 Services:
 
